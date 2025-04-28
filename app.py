@@ -5,6 +5,10 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils import range_boundaries, get_column_letter
 from datetime import datetime
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
+from openpyxl.cell.cell import MergedCell
+
 import unicodedata
 
 def normalizar_texto(texto):
@@ -149,6 +153,23 @@ def escribir_en_celda(ws, celda_destino, valor, formato=None):
     print(f"🖊️ Escribiendo en {celda_destino}: '{nuevo_valor}'")
 
 
+
+
+def ajustar_altura_fila(ws, fila, col='C'):
+    celda = f"{col}{fila}"
+    valor = str(ws[celda].value) if ws[celda].value else ""
+    if not valor:
+        return
+    ancho_col = ws.column_dimensions[col].width or 100
+    lineas = sum([len(line) // int(ancho_col) + 1 for line in valor.split('\n')])
+    ws.row_dimensions[fila].height = max(15, 15 * lineas)
+
+def set_print_area(ws, col_inicio="A", col_fin="G", fila_inicio=1, fila_fin=None):
+    if fila_fin is None:
+        fila_fin = ws.max_row
+    ws.print_area = f"{col_inicio}{fila_inicio}:{col_fin}{fila_fin}"
+    ws.page_margins = PageMargins(left=0.5, right=0.5, top=0.75, bottom=0.75)
+
 # FUNCIÓN PARA ESCRIBIR LA PLANTILLA FINAL
 def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
     wb = load_workbook(plantilla_path)
@@ -156,8 +177,10 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
 
     print(f"\n🧾 Inyectando datos para plantilla: {tipo_plantilla}")
 
+    # Ajustar ancho de columna C (descripción) para que el wrap y altura funcionen bien
+    ws.column_dimensions['C'].width = 60
+
     if tipo_plantilla == "Medellín":
-        # 📌 DATOS BENEFICIARIO
         campos = {
             "C7": datos.get("nombre", ""),
             "C8": datos.get("cedula", ""),
@@ -169,8 +192,6 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
             "E101": datos.get("nombre", ""),
             "F100": datos.get("cedula", "")
         }
-
-        # Actividades a partir de fila 14
         fila_inicio = 14
         fila_totales = {
             "subtotal": "G77",
@@ -179,41 +200,31 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
             "total": "G83",
             "valor_final": "G85"
         }
-
-        # Celdas técnico
         celda_tecnico_nombre = "B101"
         celda_tecnico_cedula = "C100"
-
     elif tipo_plantilla == "Findeter":
         campos = {
-            "F15": datos.get("nombre", ""),  # Nombre va junto a "NOMBRE Y APELLIDOS:"
-            "E16": datos.get("cedula", ""),  # Cédula va junto a "NUMERO DE IDENTIFICACION:"
-            "F17": f'{datos.get("telefono", "")} / {datos.get("telefono2", "")}'.strip(" /"),  # Teléfonos
-            "B16": datos.get("direccion", ""),  # Dirección junto a "DIRECCION DE LA"
-            "B17": datos.get("cedula", ""),     # Cédula catastral (si es la misma que identificación)
+            "F15": datos.get("nombre", ""),
+            "E16": datos.get("cedula", ""),
+            "F17": f'{datos.get("telefono", "")} / {datos.get("telefono2", "")}'.strip(" /"),
+            "B16": datos.get("direccion", ""),
+            "B17": datos.get("cedula", ""),
             "G5": datos.get("idhogar", ""),
             "G6": datetime.now().strftime("%d/%m/%Y")
         }
-
         for celda, valor in campos.items():
             escribir_en_celda(ws, celda, valor)
-
-
         fila_inicio = 31
         fila_totales = {
             "subtotal": "G93",
             "valor_final": "G94"
         }
-
         celda_tecnico_nombre = "B104"
         celda_tecnico_cedula = "B105"
 
-
-    # Inyectar datos
     for celda, valor in campos.items():
         escribir_en_celda(ws, celda, valor)
 
-    # Detectar celdas combinadas
     celdas_no_editables = set()
     for r in ws.merged_cells.ranges:
         min_col, min_row, max_col, max_row = range_boundaries(str(r))
@@ -221,7 +232,6 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
             for col in range(min_col, max_col + 1):
                 celdas_no_editables.add(f"{get_column_letter(col)}{row}")
 
-    # ACTIVIDADES
     categorias = df["Categoría"].dropna().unique()
     print("\n📂 Categorías encontradas:", list(categorias))
 
@@ -239,11 +249,10 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
                     valor = valor.replace("$", "").replace(".", "").replace(",", ".")
                 try:
                     valor_float = float(valor)
-                    valor_truncado = int(valor_float * 100) / 100  # truncamiento
+                    valor_truncado = int(valor_float * 100) / 100
                     return valor_truncado
                 except:
                     return 0.0
-
 
             if tipo_plantilla == "Findeter":
                 datos_fila = {
@@ -254,7 +263,7 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
                     f"E{fila_inicio}": limpiar_valor_moneda(row["V. Unitario"]),
                     f"F{fila_inicio}": limpiar_valor_moneda(row["V. Parcial"]),
                 }
-            else:  # Medellín u otras
+            else:
                 datos_fila = {
                     f"B{fila_inicio}": row["Item"],
                     f"C{fila_inicio}": normalizar_texto(row["Actividad Obra"]),
@@ -264,17 +273,20 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
                     f"G{fila_inicio}": limpiar_valor_moneda(row["V. Parcial"]),
                 }
 
-
             for celda, valor in datos_fila.items():
                 if celda not in celdas_no_editables:
                     ws[celda] = valor
                     col_letra = celda[0].upper()
                     align = Alignment(horizontal="left", wrap_text=True)
                     ws[celda].alignment = align
-                    # ws[celda].font = Font(name="Times New Roman", size=15)s
-
                     if col_letra in ["E", "F", "G"]:
-                        ws[celda].number_format = '"$"#,##0.00'  # pesos con separador miles y 2 decimales
+                        ws[celda].number_format = '"$"#,##0.00'
+
+            # ----> AJUSTA ALTO DE FILA PARA DESCRIPCIÓN LARGA
+            if tipo_plantilla == "Findeter":
+                ajustar_altura_fila(ws, fila_inicio, 'B')
+            else:
+                ajustar_altura_fila(ws, fila_inicio, 'C')
 
             if tipo_plantilla == "Findeter":
                 celda_parcial = f"F{fila_inicio}"
@@ -285,7 +297,6 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
         fila_inicio += 1
 
     # TOTALES
-        # TOTALES
     escribir_en_celda(
         ws,
         fila_totales["subtotal"],
@@ -301,10 +312,24 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
     elif tipo_plantilla == "Findeter":
         escribir_en_celda(ws, fila_totales["valor_final"], f"={fila_totales['subtotal']}", '"$"#,##0.00')
 
-
-    # TÉCNICO
     escribir_en_celda(ws, celda_tecnico_nombre, datos.get("tecnico_nombre", ""))
     escribir_en_celda(ws, celda_tecnico_cedula, datos.get("tecnico_cedula", ""))
+
+    # ---> AJUSTA ÁREA DE IMPRESIÓN AL FINAL DE TODO
+    # Ajusta área de impresión para toda la hoja
+    for fila in range(1, 107):
+        for col in ["A", "B", "C", "D", "E", "F", "G"]:
+            celda = f"{col}{fila}"
+            if isinstance(ws[celda], MergedCell):
+                continue
+            if ws[celda].value is None:
+                ws[celda].value = ""
+
+
+    set_print_area(ws, col_inicio="A", col_fin="G", fila_inicio=1, fila_fin=106)
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.orientation = "portrait"
 
     output = io.BytesIO()
     wb.save(output)
@@ -331,4 +356,3 @@ if csv_file:
                 file_name=f"Reporte_Medellin_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
