@@ -297,12 +297,12 @@ def escribir_plantilla(df, datos, plantilla_path, tipo_plantilla):
         fila_inicio += 1
 
     # TOTALES
-    escribir_en_celda(
-        ws,
-        fila_totales["subtotal"],
-        f"=SUM(G{fila_inicio - len(df)}:G{fila_inicio - 1})",
-        '"$"#,##0.00'
-    )
+    escribir_en_celda(ws, "G77", "=SUM(G15:G76)", '"$"#,##0.00')
+    escribir_en_celda(ws, "G81", "=G77*0.12", '"$"#,##0.00')
+    escribir_en_celda(ws, "G82", "=G77*0.016", '"$"#,##0.00')
+    escribir_en_celda(ws, "G83", "=G77+G81+G82", '"$"#,##0.00')
+    escribir_en_celda(ws, "F85", "=G83", '"$"#,##0.00')
+
 
     if tipo_plantilla == "Medellín":
         escribir_en_celda(ws, fila_totales["iva"], f"={fila_totales['subtotal']}*0.12", '"$"#,##0.00')
